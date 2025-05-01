@@ -1,6 +1,7 @@
 import numpy as np
 import time
 import os
+import csv
 
 def daxpy(a, X, Y):
     Y += a * X
@@ -17,7 +18,13 @@ sizes = [
     15_000_000, 20_000_000, 30_000_000, 40_000_000, 50_000_000, 60_000_000, 70_000_000,
     75_000_000, 100_000_000, 110_000_000, 120_000_000, 130_000_000, 140_000_000, 150_000_000
 ]
-num_threads_list = [1, 2, 4, 8]  # Adjust based on your CPU
+num_threads_list = [1, 2, 4, 8] 
+
+csv_filename = "daxpy_parallel_results.csv"
+if not os.path.exists(csv_filename):
+    with open(csv_filename, mode = 'w', newline= '') as file:
+        writer = csv.writer(file)
+        writer.writerow(["threads", "size", "time_sec", "bandwidth_GBps"])
 
 print("threads,size,time_sec,bandwidth_GBps")
 
@@ -36,3 +43,7 @@ for threads in num_threads_list:
         bandwidth = (3 * X.nbytes) / (elapsed * 1e9)  # 2 reads + 1 write
 
         print(f"{threads},{N},{elapsed:.6f},{bandwidth:.2f}")
+        
+        with open(csv_filename, mode='a', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow([threads, N, elapsed, bandwidth])
