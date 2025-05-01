@@ -4,8 +4,13 @@ import time
 import csv
 
 def daxpy_strided(N, stride):
-    x = np.ones(N * stride, dtype=np.float64)[::stride]
-    y = np.ones(N * stride, dtype=np.float64)[::stride]
+    x_base = np.ones(N * stride, dtype=np.float64, order = 'C')
+    y_base = np.ones(N * stride, dtype=np.float64, order = 'C')
+
+    x = x_base[::stride]
+    y = y_base[::stride]
+
+    assert len(x) == N, f"Expected {N} elements, got {len(x)}"
 
     # Warm-up
     _ = daxpy(x, y, a=2.0)
@@ -20,7 +25,7 @@ def daxpy_strided(N, stride):
     bandwidth = bytes_moved / elapsed / 1e9  # GB/s
 
     print(f"Stride = {stride}, N = {N:,}")
-    print(f"Elapsed time: {elapsed:.4f} sec")
+    print(f"Elapsed time: {elapsed:.6f} sec")
     print(f"Estimated Bandwidth: {bandwidth:.2f} GB/s")
 
     return (stride, elapsed, bandwidth)
@@ -28,7 +33,7 @@ def daxpy_strided(N, stride):
 if __name__ == "__main__":
     results = []
     N = 10_000_000
-    for stride in [1, 2, 4, 8]:
+    for stride in [1, 2, 4, 8, 16, 32, 64, 128]:
         print(f"\n--- Testing Stride {stride} ---")
         results.append(daxpy_strided(N, stride))
 
