@@ -33,7 +33,7 @@ def daxpy_strided(N, stride):
 if __name__ == "__main__":
     results = []
     N = 10_000_000
-    for stride in [1, 2, 4, 8, 16, 32, 64, 128]:
+    for stride in [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64, 75, 80, 96, 112, 128, 140, 156, 160, 192, 256]:
         print(f"\n--- Testing Stride {stride} ---")
         results.append(daxpy_strided(N, stride))
 
