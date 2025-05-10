@@ -3,7 +3,7 @@ import time
 import random
 import csv
 
-def pointer_chase(N, trials=5):
+def pointer_chase(N, trials=5, repeat_factor=1_000):
     idx = list(range(N))
     random.shuffle(idx)
 
@@ -15,7 +15,7 @@ def pointer_chase(N, trials=5):
     for _ in range(trials):
         i = 0
         start = time.perf_counter()
-        for _ in range(N):
+        for _ in range(max(1, N * repeat_factor)):
             i = arr[i]
         end = time.perf_counter()
         total_time += (end - start)
@@ -31,8 +31,8 @@ def pointer_chase(N, trials=5):
 
 if __name__ == "__main__":
     results = []
-    trials = 5
-    sizes = [1_000, 1_500, 2_000, 3_000, 4_000, 5_000, 6_000, 8_000, 10_000, 15_000, 20_000, 25_000, 30_000,
+    trials = 10
+    sizes = [1 , 5 , 10 ,50, 75, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1_000, 1_500, 2_000, 3_000, 4_000, 5_000, 6_000, 8_000, 10_000, 15_000, 20_000, 25_000, 30_000,
     35_000, 40_000, 50_000, 60_000, 75_000, 90_000, 100_000, 110_000, 120_000, 130_000, 140_000,
     150_000, 160_000, 170_000, 180_000, 190_000, 200_000, 230_000, 270_000, 290_000, 300_000,
     325_000, 350_000, 375_000, 400_000, 410_000, 425_000, 430_000, 450_000, 475_000, 500_000,
