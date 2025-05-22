@@ -75,10 +75,13 @@ print(f"Elapsed: {{end - start}}")
     
     for line in stderr.splitlines():
         for event in events:
-            if event in line:
+            if event in line and re.search(r"^\s*[\d,]+", line:
                 match = re.search(r"([\d,]+)", line)
                 if match:
-                    events[event] = int(match.group(1).replace(",", ""))
+                    num_str = match.group(1).replace(",", "")
+                    if num_str.isdigit():
+                        events[event] = int(num_str)
+                
                 break
 
     return elapsed, cache_misses
