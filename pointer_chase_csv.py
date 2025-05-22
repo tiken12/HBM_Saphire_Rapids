@@ -56,7 +56,7 @@ print(f"Elapsed: {{end - start}}")
         "python3", "temp_pointer_chase_perf.py"
     ]
 
-    result = subprocess.run(perf_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(perf_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     stderr = result.stderr
     stdout = result.stdout
 
