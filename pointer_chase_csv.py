@@ -4,6 +4,7 @@ import random
 import csv
 import subprocess
 import re
+import os
 
 def pointer_chase(N, repeat_factor):
     idx = list(range(N))
@@ -51,11 +52,11 @@ print(f"Elapsed: {{end - start}}")
 
     perf_command = [
         "perf", "stat",
-        "-e", "cache-misses",
+        "-e", "cache-misses,L1-dcache-load-misses,L2_RQSTS.MISS,LLC_MISSES",
         "python3", "temp_pointer_chase_perf.py"
     ]
 
-    result = subprocess.run(perf_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    result = subprocess.run(perf_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     stderr = result.stderr
     stdout = result.stdout
 
@@ -64,12 +65,20 @@ print(f"Elapsed: {{end - start}}")
     elapsed = float(elapsed_match.group(1)) if elapsed_match else None
 
     # Extract cache misses
-    cache_misses = None
+    events = {
+            "cache-misses": None,
+            "L1-dcache-load-misses": None,
+            "L2_RQSTS.MISS": None,
+            "LLC_MISSES": None
+            }
+
+    
     for line in stderr.splitlines():
-        if "cache-misses" in line:
-            match = re.search(r'([\d,]+)', line)
-            if match:
-                cache_misses = int(match.group(1).replace(",", ""))
+        for event in events:
+            if event in line:
+                match = re.search(r"([\d,]+)", line)
+                if match:
+                    events[event] = int(match.group(1).replace(",", ""))
                 break
 
     return elapsed, cache_misses
@@ -89,7 +98,7 @@ if __name__ == "__main__":
 
 
     # Save results to CSV
-    with open("pointer_chase_perf_validated.csv", "w", newline="") as f:
+    with open("pointer_chase_cache_profile.csv", "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["N", "Trial", "Latency_ns", "App_Bandwidth_GBps", "Perf_Elapsed", "Cach_Misses", "Perf_Bandwidth_GBps"])
 
@@ -102,9 +111,9 @@ if __name__ == "__main__":
                 app_bandwidth = app_bytes / elapsed / 1e9 #in GB/s
 
                 # Run perf-based measurement
-                perf_elapsed, cache_misses = run_perf(N, repeat_factor)
-                if perf_elapsed and cache_misses:
-                    perf_bandwidth = (cache_misses * 64) / perf_elapsed / 1e9
+                perf_elapsed, events = run_perf(N, repeat_factor)
+                if perf_elapsed and events["cache_misses"] is not None:
+                    perf_bandwidth = (events["cache_misses"] * 64) / perf_elapsed / 1e9
                 else:
                     perf_bandwidth = None
 
@@ -114,9 +123,12 @@ if __name__ == "__main__":
                     latency_ns,
                     app_bandwidth,
                     perf_elapsed,
-                    cache_misses,
+                    events["cache_misses"], events["L1-dcache-load-misses"],
+                    events["L2_RQSTS.MISS"], events["LLC_MISSES"],
                     perf_bandwidth
                     ])
 
-
-    print("\nResults written to pointer_chase_perf_validated.csv")
+    os.remove("temp_pointer_chase_perf.py")
+    print("\nResults written to pointer_chase_cache_profile.csv")
+if __name__ == "__main__":
+    main()
