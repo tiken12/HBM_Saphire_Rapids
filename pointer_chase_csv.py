@@ -52,7 +52,7 @@ print(f"Elapsed: {{end - start}}")
 
     perf_command = [
         "perf", "stat",
-        "-e", "cache-misses,L1-dcache-load-misses,L2_RQSTS.MISS,LLC_MISSES",
+        "-e", "cache-misses,L1-dcache-load-misses, LLC-load-misses, LLC-loads",
         "python3", "temp_pointer_chase_perf.py"
     ]
 
@@ -68,14 +68,14 @@ print(f"Elapsed: {{end - start}}")
     events = {
             "cache-misses": None,
             "L1-dcache-load-misses": None,
-            "L2_RQSTS.MISS": None,
-            "LLC_MISSES": None
+            "LLC-load-misses": None,
+            "LLC-loads": None
             }
 
     
     for line in stderr.splitlines():
         for event in events:
-            if event in line and re.search(r"^\s*[\d,]+", line:
+            if event in line and re.search(r"^\s*[\d,]+", line):
                 match = re.search(r"([\d,]+)", line)
                 if match:
                     num_str = match.group(1).replace(",", "")
@@ -84,7 +84,7 @@ print(f"Elapsed: {{end - start}}")
                 
                 break
 
-    return elapsed, cache_misses
+    return elapsed, events
 
 
 
@@ -115,8 +115,8 @@ if __name__ == "__main__":
 
                 # Run perf-based measurement
                 perf_elapsed, events = run_perf(N, repeat_factor)
-                if perf_elapsed and events["cache_misses"] is not None:
-                    perf_bandwidth = (events["cache_misses"] * 64) / perf_elapsed / 1e9
+                if perf_elapsed and events["cache-misses"] is not None:
+                    perf_bandwidth = (events["cache-misses"] * 64) / perf_elapsed / 1e9
                 else:
                     perf_bandwidth = None
 
@@ -126,12 +126,16 @@ if __name__ == "__main__":
                     latency_ns,
                     app_bandwidth,
                     perf_elapsed,
-                    events["cache_misses"], events["L1-dcache-load-misses"],
-                    events["L2_RQSTS.MISS"], events["LLC_MISSES"],
+                    events["cache-misses"], events["L1-dcache-load-misses"],
+                    events["LLC-load-misses"], events["LLC-loads"],
                     perf_bandwidth
                     ])
 
     os.remove("temp_pointer_chase_perf.py")
     print("\nResults written to pointer_chase_cache_profile.csv")
+
+def main():
+    pass
+
 if __name__ == "__main__":
     main()
