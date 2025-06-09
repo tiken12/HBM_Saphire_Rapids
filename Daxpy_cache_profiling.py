@@ -8,6 +8,7 @@ import seaborn as sns
 trials_per_N = 5
 alpha = 2.5
 element_size = 8  # float64
+# Kenneth: See advice in pointer_chase_csv.py on setting these.
 sizes = [
     256, 512, 1024, 2048, 4096, 8192,
     16_384, 32_768, 65_536, 131_072,
@@ -19,6 +20,7 @@ sizes = [
 results = []
 
 # Benchmark loop
+# Kenneth: Looks reasonable to me.
 for N in sizes:
     x = np.random.rand(N).astype(np.float64)
     y = np.random.rand(N).astype(np.float64)
@@ -40,6 +42,6 @@ for N in sizes:
 
 # Save to CSV
 df = pd.DataFrame(results)
+# Kenneth: Do we use this? Any useful data?
 df.to_csv("daxpy_cache_profile.csv", index=False)
 print("✅ Benchmark complete. Results saved to daxpy_cache_profile.csv")
-

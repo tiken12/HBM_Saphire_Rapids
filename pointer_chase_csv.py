@@ -6,7 +6,11 @@ import subprocess
 import re
 import os
 
+# Kenneth: Overall note: Organize the repo using meaningful folder names to make it easier for you (and others less familliar with the codebase) to traverse your work. e.g., results should be in their own folder, old stuff that isn't useful either deleted or set aside in another folder, sorting files by test type, etc.
+
+
 def pointer_chase(N, repeat_factor):
+    # Kenneth: Could this cause a premature end to the cycle?
     idx = list(range(N))
     random.shuffle(idx)
     arr = np.zeros(N, dtype=np.int64)
@@ -14,17 +18,22 @@ def pointer_chase(N, repeat_factor):
         arr[i] = idx[i]
 
     i = 0
+    # Kenneth: Not to be confused with perf. Just gets the current time with an accurate clock.
     start = time.perf_counter()
+    # Kenneth: Repeat factor ought to throw off the results, right? If we run with a repeat factor of 5, then 5x as many ops happen, but we still report on latency as though only 1x ops happened. What is the purpose of this?
     for _ in range(N * repeat_factor):
         i = arr[i]
     end = time.perf_counter()
 
     elapsed = end - start
+    # Kenneth: Average time per pointer chased.
     latency_ns = (elapsed / N) * 1e9
 
     return latency_ns, elapsed
 
+
 def run_perf(N, repeat_factor):
+    # Kenneth: Consider using inspect.getsource() on pointer_chase to make this cleaner.
     code = f"""
 import numpy as np
 import random
@@ -56,7 +65,8 @@ print(f"Elapsed: {{end - start}}")
         "python3", "temp_pointer_chase_perf.py"
     ]
 
-    result = subprocess.run(perf_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    result = subprocess.run(perf_command, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, universal_newlines=True)
     stderr = result.stderr
     stdout = result.stdout
 
@@ -66,13 +76,12 @@ print(f"Elapsed: {{end - start}}")
 
     # Extract cache misses
     events = {
-            "cache-misses": None,
-            "L1-dcache-load-misses": None,
-            "LLC-load-misses": None,
-            "LLC-loads": None
-            }
+        "cache-misses": None,
+        "L1-dcache-load-misses": None,
+        "LLC-load-misses": None,
+        "LLC-loads": None
+    }
 
-    
     for line in stderr.splitlines():
         for event in events:
             if event in line and re.search(r"^\s*[\d,]+", line):
@@ -81,61 +90,68 @@ print(f"Elapsed: {{end - start}}")
                     num_str = match.group(1).replace(",", "")
                     if num_str.isdigit():
                         events[event] = int(num_str)
-                
+
                 break
 
     return elapsed, events
 
 
-
 if __name__ == "__main__":
     results = []
     trials = 10
-    sizes = [1 , 5 , 10 ,50, 75, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1_000, 1_500, 2_000, 3_000, 4_000, 5_000, 6_000,
-            8_000, 10_000, 15_000, 20_000, 25_000, 30_000, 35_000, 40_000, 50_000, 60_000, 75_000, 90_000, 100_000, 110_000, 
-            120_000, 130_000, 140_000, 150_000, 160_000, 170_000, 180_000, 190_000, 200_000, 230_000, 270_000, 290_000, 300_000
-            , 325_000, 350_000, 375_000, 400_000, 410_000, 425_000, 430_000, 450_000, 475_000, 500_000, 525_000, 540_000, 
-            575_000, 590_000, 600_000, 610_000, 625_000, 650_000, 675_000, 750_000, 800_000, 850_000, 900_000, 925_000, 
-            950_000, 975_000, 1_000_000, 5_000_000, 10_000_000, 15_000_000, 20_000_000, 30_000_000, 40_000_000, 50_000_000, 
-            60_000_000, 70_000_000]
-
+    # Kenneth: Instead of hardcoding these sizes, why not go for a fixed (log_2) stride from 0 through just a bit larger than L3 cache size? We can compute this if we can get the size of our cache (which we need to plot the graph anyway).
+    # Kenneth: We can retrieve cache size at runtime using lscpu | grep cache if we want.
+    sizes = [1, 5, 10, 50, 75, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1_000, 1_500, 2_000, 3_000, 4_000, 5_000, 6_000,
+             8_000, 10_000, 15_000, 20_000, 25_000, 30_000, 35_000, 40_000, 50_000, 60_000, 75_000, 90_000, 100_000, 110_000,
+             120_000, 130_000, 140_000, 150_000, 160_000, 170_000, 180_000, 190_000, 200_000, 230_000, 270_000, 290_000, 300_000, 325_000, 350_000, 375_000, 400_000, 410_000, 425_000, 430_000, 450_000, 475_000, 500_000, 525_000, 540_000,
+             575_000, 590_000, 600_000, 610_000, 625_000, 650_000, 675_000, 750_000, 800_000, 850_000, 900_000, 925_000,
+             950_000, 975_000, 1_000_000, 5_000_000, 10_000_000, 15_000_000, 20_000_000, 30_000_000, 40_000_000, 50_000_000,
+             60_000_000, 70_000_000]
 
     # Save results to CSV
     with open("pointer_chase_cache_profile.csv", "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["N", "Trial", "Latency_ns", "App_Bandwidth_GBps", "Perf_Elapsed", "Cach_Misses", "Perf_Bandwidth_GBps"])
+        writer.writerow(["N", "Trial", "Latency_ns", "App_Bandwidth_GBps",
+                        "Perf_Elapsed", "Cach_Misses", "Perf_Bandwidth_GBps"])
 
         for N in sizes:
             repeat_factor = max(1, 10_000 // N)
             for trial in range(trials):
-                #Run app-native measurement
+                # Run app-native measurement
+                # Kenneth: Correctly counts bytes, but the average latency is still wrong here.
                 latency_ns, elapsed = pointer_chase(N, repeat_factor)
+                # Kenneth: 8 assumes 64-bit pointers (8 bytes per pointer). Recall the use of dtype=np.int64.
                 app_bytes = N * repeat_factor * 8
-                app_bandwidth = app_bytes / elapsed / 1e9 #in GB/s
+                app_bandwidth = app_bytes / elapsed / 1e9  # in GB/s
 
                 # Run perf-based measurement
+                # Kenneth: Since we run these as independent processes already (and thus don't affect the performance much by our profiling), maybe we should be running one test with both perf and counter-based tests happening at once?
                 perf_elapsed, events = run_perf(N, repeat_factor)
                 if perf_elapsed and events["cache-misses"] is not None:
-                    perf_bandwidth = (events["cache-misses"] * 64) / perf_elapsed / 1e9
+                    perf_bandwidth = (
+                        events["cache-misses"] * 64) / perf_elapsed / 1e9
                 else:
                     perf_bandwidth = None
 
+                # Kenneth: Where are UNC_M_CAS_COUNT.RD and UNC_M_CAS_COUNT.WR?
                 writer.writerow([
                     N,
-                    trial +1,
+                    trial + 1,
                     latency_ns,
                     app_bandwidth,
                     perf_elapsed,
                     events["cache-misses"], events["L1-dcache-load-misses"],
                     events["LLC-load-misses"], events["LLC-loads"],
                     perf_bandwidth
-                    ])
+                ])
 
     os.remove("temp_pointer_chase_perf.py")
     print("\nResults written to pointer_chase_cache_profile.csv")
 
+
 def main():
     pass
+
 
 if __name__ == "__main__":
     main()

@@ -5,13 +5,14 @@ import subprocess
 import time
 
 # Estimated cache line size in bytes
+# Kenneth: Could probably get this from the OS.
 CACHE_LINE_SIZE = 64
 SLEEP_SECONDS = 1
 CSV_FILE = "cha_bandwidth_metrics.csv"
 
 # Define events to test
 uncore_events = {
-        "CHA58_READS": "unc_c_cha_58/UNC_CHA_IMC_READS_COUNT/",
+    "CHA58_READS": "unc_c_cha_58/UNC_CHA_IMC_READS_COUNT/",
     "CHA58_WRITES": "unc_c_cha_58/UNC_CHA_IMC_WRITES_COUNT/",
     "CHA59_READS": "unc_c_cha_59/UNC_CHA_IMC_READS_COUNT/",
     "CHA59_WRITES": "unc_c_cha_59/UNC_CHA_IMC_WRITES_COUNT/",
@@ -29,15 +30,18 @@ results = {}
 
 with open(CSV_FILE, mode='w', newline='') as csvfile:
     writer = csv.writer(csvfile)
-    writer.writerow(["timestamp", "source", "reads", "writes", "bandwidth_MBps"])
+    writer.writerow(["timestamp", "source", "reads",
+                    "writes", "bandwidth_MBps"])
 
     def run_perf(event_name, event_cmd):
         try:
             result = subprocess.run(
-                ["perf", "stat","-a","-C","0","-e", event_cmd, "sleep", str(SLEEP_SECONDS)],
-                stdout = subprocess.PIPE,
-                stderr = subprocess.PIPE,
-                universal_newlines = True,
+                # Kenneth: What is the purpose of profiling sleep? Does this properly capture metrics from outside programs? I would think not?
+                ["perf", "stat", "-a", "-C", "0", "-e",
+                    event_cmd, "sleep", str(SLEEP_SECONDS)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
                 timeout=SLEEP_SECONDS + 2
             )
 
@@ -69,6 +73,7 @@ with open(CSV_FILE, mode='w', newline='') as csvfile:
             results[event_name] = None
 
     # Run all events
+    # Kenneth: So we run perf separately for each even instead of tracking them all?
     for name, perf_event in uncore_events.items():
         run_perf(name, perf_event)
 

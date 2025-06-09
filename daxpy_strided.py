@@ -3,9 +3,10 @@ from scipy.linalg.blas import daxpy
 import time
 import csv
 
+
 def daxpy_strided(N, stride):
-    x_base = np.ones(N * stride, dtype=np.float64, order = 'C')
-    y_base = np.ones(N * stride, dtype=np.float64, order = 'C')
+    x_base = np.ones(N * stride, dtype=np.float64, order='C')
+    y_base = np.ones(N * stride, dtype=np.float64, order='C')
 
     x = x_base[::stride]
     y = y_base[::stride]
@@ -30,6 +31,7 @@ def daxpy_strided(N, stride):
 
     return (stride, elapsed, bandwidth)
 
+
 if __name__ == "__main__":
     results = []
     N = 10_000_000
@@ -43,4 +45,3 @@ if __name__ == "__main__":
         writer.writerows(results)
 
     print("\n Results written to daxpy_strided_results.csv")
-
