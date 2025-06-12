@@ -20,7 +20,7 @@ def pointer_chase(N, repeat_factor):
     end = time.perf_counter()
 
     elapsed = end - start
-    latency_ns = (elapsed / N) * 1e9
+    latency_ns = (elapsed / N) * 1024**3
 
     return latency_ns, elapsed
 
@@ -103,7 +103,7 @@ if __name__ == "__main__":
     # Save results to CSV
     with open("pointer_chase_cache_profile.csv", "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["N", "Trial", "Latency_ns", "App_Bandwidth_GBps", "Perf_Elapsed", "Cach_Misses", "Perf_Bandwidth_GBps"])
+        writer.writerow(["N", "Trial", "Latency_ns", "App_Bandwidth_GBps", "Perf_Bandwidth_GBps", "Perf_Elapsed", "Cache_Misses", "L1-dcache-load-misses", "LLC-load-misses","LLC-loads"])
 
         for N in sizes:
             repeat_factor = max(1, 10_000 // N)
@@ -111,12 +111,12 @@ if __name__ == "__main__":
                 #Run app-native measurement
                 latency_ns, elapsed = pointer_chase(N, repeat_factor)
                 app_bytes = N * repeat_factor * 8
-                app_bandwidth = app_bytes / elapsed / 1e9 #in GB/s
+                app_bandwidth = app_bytes / elapsed / 1024**3 #in GB/s
 
                 # Run perf-based measurement
                 perf_elapsed, events = run_perf(N, repeat_factor)
                 if perf_elapsed and events["cache-misses"] is not None:
-                    perf_bandwidth = (events["cache-misses"] * 64) / perf_elapsed / 1e9
+                    perf_bandwidth = (events["cache-misses"] * 64) / perf_elapsed / 1024**3
                 else:
                     perf_bandwidth = None
 
@@ -125,10 +125,12 @@ if __name__ == "__main__":
                     trial +1,
                     latency_ns,
                     app_bandwidth,
+                    perf_bandwidth,
                     perf_elapsed,
-                    events["cache-misses"], events["L1-dcache-load-misses"],
-                    events["LLC-load-misses"], events["LLC-loads"],
-                    perf_bandwidth
+                    events["cache-misses"],
+                    events["L1-dcache-load-misses"],
+                    events["LLC-load-misses"],
+                    events["LLC-loads"],
                     ])
 
     os.remove("temp_pointer_chase_perf.py")
@@ -139,3 +141,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
