@@ -5,6 +5,24 @@ import csv
 import subprocess
 import re
 import os
+import match
+from pathlipe import Path
+
+def get_l3_cache_kb():
+    """Get the size of the L3 cache in KB."""
+    try:
+        result = subprocess.run("lscpu | grep 'L3 cache'", shell=True, capture_output=True, text=True)
+        match = re.search(r'(\d+)', result.stdout)
+        return int(match.group(1)) if match else 1024 * 30  # Default to 30MB if not found
+    except:
+        return 1024 * 30  # Default to 30MB if lscpu fails
+
+def generate_test_sizes(l3_kb, max_limit=100_000_000):
+    """Generate test sizes based on L3 cache size."""
+    base_sizes = [2 ** i for i in range(0, int(math.log2(max_limit)) + 1)]
+    return sorted(set(base_sizes))
+
+
 
 def pointer_chase(N, repeat_factor):
     idx = list(range(N))
@@ -21,8 +39,10 @@ def pointer_chase(N, repeat_factor):
 
     elapsed = end - start
     latency_ns = (elapsed / N) * 1024**3
+    app_bytes = N * repeat_factor * 8  # 8 bytes per int64
+    app_bandwidth = app_bytes / elapsed / 1024**3  # in GB/s
 
-    return latency_ns, elapsed
+    return latency_ns, elapsed, app_bandwidth
 
 def run_perf(N, repeat_factor):
     code = f"""
@@ -84,8 +104,48 @@ print(f"Elapsed: {{end - start}}")
                 
                 break
 
-    return elapsed, events
+    if elapsed and events["cache-misses"] is not None:
+        perf_bandwidth = (events["cache-misses"] * 64) / elapsed / 1024**3
+    else:
+        perf_bandwidth = None
 
+    os.remove("temp_pointer_chase_perf.py")
+    return perf_bandwidth, elapsed, events
+
+def main():
+    trials = 10
+    l3_kb = get_l3_cache_kb()
+    print(f"L3 Cache Size: {l3_kb / 1024} MB")
+    sizes = generate_test_sizes(l3_kb * 1024)
+    print(f"Generated test sizes: {sizes}")
+
+path("results")(exist_ok=True)
+output_csv = Path("results/pointer_chase_cache_profile.csv")
+    with open(output_csv, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["N", "Trial", "Latency_ns", "App_Bandwidth_GBps", "Perf_Bandwidth_GBps", "Perf_Elapsed", "Cache_Misses", "L1-dcache-load-misses", "LLC-load-misses","LLC-loads"])
+
+        for N in sizes:
+            repeat_factor = max(1, 10_000 // N)
+            for trial in range(trials):
+                # Run app-native measurement
+                latency_ns, elapsed, app_bandwidth = pointer_chase(N, repeat_factor)
+
+                # Run perf-based measurement
+                perf_bandwidth, perf_elapsed, events = run_perf(N, repeat_factor)
+
+                writer.writerow([
+                    N,
+                    trial + 1,
+                    latency_ns,
+                    app_bandwidth,
+                    perf_bandwidth,
+                    perf_elapsed,
+                    events["cache-misses"],
+                    events["L1-dcache-load-misses"],
+                    events["LLC-load-misses"],
+                    events["LLC-loads"],
+                ])
 
 
 if __name__ == "__main__":
