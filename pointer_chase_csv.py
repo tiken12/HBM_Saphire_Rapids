@@ -5,23 +5,34 @@ import csv
 import subprocess
 import re
 import os
-import match
-from pathlipe import Path
+import math
+from pathlib import Path
 
 def get_l3_cache_kb():
-    """Get the size of the L3 cache in KB."""
+    """Get L3 cache size in KB from lscpu."""
     try:
-        result = subprocess.run("lscpu | grep 'L3 cache'", shell=True, capture_output=True, text=True)
-        match = re.search(r'(\d+)', result.stdout)
-        return int(match.group(1)) if match else 1024 * 30  # Default to 30MB if not found
-    except:
-        return 1024 * 30  # Default to 30MB if lscpu fails
+        result = subprocess.run(["lscpu"], capture_output=True, text=True)
+        for line in result.stdout.splitlines():
+            if "L3 cache" in line:
+                match = re.search(r'(\d+)([KMG])', line)
+                if match:
+                    size = int(match.group(1))
+                    unit = match.group(2)
+                    if unit == 'K':
+                        return size
+                    elif unit == 'M':
+                        return size * 1024
+                    elif unit == 'G':
+                        return size * 1024 * 1024
+        return 30 * 1024  # fallback default
+    except Exception:
+        return 30 * 1024
+
 
 def generate_test_sizes(l3_kb, max_limit=100_000_000):
     """Generate test sizes based on L3 cache size."""
     base_sizes = [2 ** i for i in range(0, int(math.log2(max_limit)) + 1)]
     return sorted(set(base_sizes))
-
 
 
 def pointer_chase(N, repeat_factor):
@@ -38,11 +49,12 @@ def pointer_chase(N, repeat_factor):
     end = time.perf_counter()
 
     elapsed = end - start
-    latency_ns = (elapsed / N) * 1024**3
+    latency_ns = (elapsed / (N * repeat_factor)) * 1e9
     app_bytes = N * repeat_factor * 8  # 8 bytes per int64
-    app_bandwidth = app_bytes / elapsed / 1024**3  # in GB/s
+    app_bandwidth = app_bytes / elapsed / 1e9  # in GB/s
 
     return latency_ns, elapsed, app_bandwidth
+
 
 def run_perf(N, repeat_factor):
     code = f"""
@@ -72,7 +84,8 @@ print(f"Elapsed: {{end - start}}")
 
     perf_command = [
         "perf", "stat",
-        "-e", "cache-misses,L1-dcache-load-misses, LLC-load-misses, LLC-loads",
+        "-e",
+        "cache-misses,L1-dcache-load-misses,LLC-load-misses,LLC-loads,UNC_M_CAS_COUNT.RD,UNC_M_CAS_COUNT.WR",
         "python3", "temp_pointer_chase_perf.py"
     ]
 
@@ -82,17 +95,17 @@ print(f"Elapsed: {{end - start}}")
 
     # Extract elapsed time
     elapsed_match = re.search(r"Elapsed:\s*([\d.]+)", stdout)
-    elapsed = float(elapsed_match.group(1)) if elapsed_match else None
+    elapsed = float(elapsed_match.group(1)) if elapsed_match else 0.0
 
-    # Extract cache misses
     events = {
-            "cache-misses": None,
-            "L1-dcache-load-misses": None,
-            "LLC-load-misses": None,
-            "LLC-loads": None
-            }
+        "cache-misses": 0,
+        "L1-dcache-load-misses": 0,
+        "LLC-load-misses": 0,
+        "LLC-loads": 0,
+        "UNC_M_CAS_COUNT.RD": 0,
+        "UNC_M_CAS_COUNT.WR": 0
+    }
 
-    
     for line in stderr.splitlines():
         for event in events:
             if event in line and re.search(r"^\s*[\d,]+", line):
@@ -101,16 +114,19 @@ print(f"Elapsed: {{end - start}}")
                     num_str = match.group(1).replace(",", "")
                     if num_str.isdigit():
                         events[event] = int(num_str)
-                
                 break
 
-    if elapsed and events["cache-misses"] is not None:
-        perf_bandwidth = (events["cache-misses"] * 64) / elapsed / 1024**3
+    # Compute perf-derived bandwidth
+    if events["cache-misses"] > 0 and elapsed > 0:
+        perf_bandwidth = (events["cache-misses"] * 64) / elapsed / 1e9
     else:
-        perf_bandwidth = None
+        perf_bandwidth = 0.0
 
-    os.remove("temp_pointer_chase_perf.py")
+    if os.path.exists("temp_pointer_chase_perf.py"):
+        os.remove("temp_pointer_chase_perf.py")
+
     return perf_bandwidth, elapsed, events
+
 
 def main():
     trials = 10
@@ -119,19 +135,21 @@ def main():
     sizes = generate_test_sizes(l3_kb * 1024)
     print(f"Generated test sizes: {sizes}")
 
-path("results")(exist_ok=True)
-output_csv = Path("results/pointer_chase_cache_profile.csv")
+    Path("results").mkdir(exist_ok=True)
+    output_csv = Path("results/pointer_chase_cache_profile.csv")
+
     with open(output_csv, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["N", "Trial", "Latency_ns", "App_Bandwidth_GBps", "Perf_Bandwidth_GBps", "Perf_Elapsed", "Cache_Misses", "L1-dcache-load-misses", "LLC-load-misses","LLC-loads"])
+        writer.writerow([
+            "N", "Trial", "Latency_ns", "App_Bandwidth_GBps", "Perf_Bandwidth_GBps",
+            "Perf_Elapsed", "Cache_Misses", "L1-dcache-load-misses", "LLC-load-misses",
+            "LLC-loads", "UNC_M_CAS_COUNT.RD", "UNC_M_CAS_COUNT.WR"
+        ])
 
         for N in sizes:
             repeat_factor = max(1, 10_000 // N)
             for trial in range(trials):
-                # Run app-native measurement
                 latency_ns, elapsed, app_bandwidth = pointer_chase(N, repeat_factor)
-
-                # Run perf-based measurement
                 perf_bandwidth, perf_elapsed, events = run_perf(N, repeat_factor)
 
                 writer.writerow([
@@ -145,61 +163,12 @@ output_csv = Path("results/pointer_chase_cache_profile.csv")
                     events["L1-dcache-load-misses"],
                     events["LLC-load-misses"],
                     events["LLC-loads"],
+                    events["UNC_M_CAS_COUNT.RD"],
+                    events["UNC_M_CAS_COUNT.WR"]
                 ])
 
+    print(f"\nResults written to {output_csv}")
 
-if __name__ == "__main__":
-    results = []
-    trials = 10
-    sizes = [1 , 5 , 10 ,50, 75, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1_000, 1_500, 2_000, 3_000, 4_000, 5_000, 6_000,
-            8_000, 10_000, 15_000, 20_000, 25_000, 30_000, 35_000, 40_000, 50_000, 60_000, 75_000, 90_000, 100_000, 110_000, 
-            120_000, 130_000, 140_000, 150_000, 160_000, 170_000, 180_000, 190_000, 200_000, 230_000, 270_000, 290_000, 300_000
-            , 325_000, 350_000, 375_000, 400_000, 410_000, 425_000, 430_000, 450_000, 475_000, 500_000, 525_000, 540_000, 
-            575_000, 590_000, 600_000, 610_000, 625_000, 650_000, 675_000, 750_000, 800_000, 850_000, 900_000, 925_000, 
-            950_000, 975_000, 1_000_000, 5_000_000, 10_000_000, 15_000_000, 20_000_000, 30_000_000, 40_000_000, 50_000_000, 
-            60_000_000, 70_000_000]
-
-
-    # Save results to CSV
-    with open("pointer_chase_cache_profile.csv", "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["N", "Trial", "Latency_ns", "App_Bandwidth_GBps", "Perf_Bandwidth_GBps", "Perf_Elapsed", "Cache_Misses", "L1-dcache-load-misses", "LLC-load-misses","LLC-loads"])
-
-        for N in sizes:
-            repeat_factor = max(1, 10_000 // N)
-            for trial in range(trials):
-                #Run app-native measurement
-                latency_ns, elapsed = pointer_chase(N, repeat_factor)
-                app_bytes = N * repeat_factor * 8
-                app_bandwidth = app_bytes / elapsed / 1024**3 #in GB/s
-
-                # Run perf-based measurement
-                perf_elapsed, events = run_perf(N, repeat_factor)
-                if perf_elapsed and events["cache-misses"] is not None:
-                    perf_bandwidth = (events["cache-misses"] * 64) / perf_elapsed / 1024**3
-                else:
-                    perf_bandwidth = None
-
-                writer.writerow([
-                    N,
-                    trial +1,
-                    latency_ns,
-                    app_bandwidth,
-                    perf_bandwidth,
-                    perf_elapsed,
-                    events["cache-misses"],
-                    events["L1-dcache-load-misses"],
-                    events["LLC-load-misses"],
-                    events["LLC-loads"],
-                    ])
-
-    os.remove("temp_pointer_chase_perf.py")
-    print("\nResults written to pointer_chase_cache_profile.csv")
-
-def main():
-    pass
 
 if __name__ == "__main__":
     main()
-
-
