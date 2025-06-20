@@ -29,7 +29,7 @@ def get_l3_cache_kb():
         return 30 * 1024
 
 
-def generate_test_sizes(l3_kb, max_limit=100_000_000):
+def generate_test_sizes(l3_kb, max_limit=2**30):
     """Generate test sizes based on L3 cache size."""
     base_sizes = [2 ** i for i in range(0, int(math.log2(max_limit)) + 1)]
     return sorted(set(base_sizes))
