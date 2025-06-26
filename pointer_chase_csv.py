@@ -31,16 +31,35 @@ def get_l3_cache_kb():
 
 def generate_test_sizes(l3_kb, max_limit=2**30):
     """Generate test sizes based on L3 cache size."""
-    base_sizes = [2 ** i for i in range(0, int(math.log2(max_limit)) + 1)]
+    base_sizes = []
+    for i in range(5, int(math.log2(max_limit)) + 1):
+        size = 2 ** i
+        base_sizes.append(size)
+        base_sizes.append(int(size * 1.5))
     return sorted(set(base_sizes))
-
+    
+def make_single_cycle_permutation(N):
+    idx = list(range(N))
+    random.shuffle(idx[1:])  # Fix the first index
+    arr = np.zeros(N, dtype=np.int64)
+    for i in range(N - 1):
+        arr[idx[i]] = idx[i + 1]
+    arr[idx[-1]] = idx[0]  # Close the cycle
+    return arr
 
 def pointer_chase(N, repeat_factor):
-    idx = list(range(N))
-    random.shuffle(idx)
-    arr = np.zeros(N, dtype=np.int64)
-    for i in range(N):
-        arr[i] = idx[i]
+    arr = make_single_cycle_permutation(N)
+    # Warm-up pass to ensure cache is populated
+
+    
+    # Validate pointer chain covers all elements
+    visited = set()
+    i = 0
+    for _ in range(N):
+        visited.add(i)
+        i = arr[i]
+    assert len(visited) == N, "Pointer chase does not visit all elements"
+
 
     i = 0
     start = time.perf_counter()
@@ -71,11 +90,26 @@ arr = np.zeros(N, dtype=np.int64)
 for i in range(N):
     arr[i] = idx[i]
 
+# Optional full-cycle validation
+visited = set()
+i = 0
+for _ in range(N):
+    visited.add(i)
+    i = arr[i]
+assert len(visited) == N
+
+# Warm-up pass
+i = 0
+for _ in range(N):
+    i = arr[i]
+
+# Timed pointer chase
 i = 0
 start = time.perf_counter()
 for _ in range(N * repeat_factor):
     i = arr[i]
 end = time.perf_counter()
+
 print(f"Elapsed: {{end - start}}")
 """
 
@@ -85,7 +119,7 @@ print(f"Elapsed: {{end - start}}")
     perf_command = [
         "perf", "stat",
         "-e",
-        "cache-misses,L1-dcache-load-misses,LLC-load-misses,LLC-loads,UNC_M_CAS_COUNT.RD,UNC_M_CAS_COUNT.WR",
+        "cache-misses,L1-dcache-load-misses,LLC-load-misses,LLC-loads,unc_m_cas_count.rd,unc_m_cas_count.wr",
         "python3", "temp_pointer_chase_perf.py"
     ]
 
@@ -102,8 +136,8 @@ print(f"Elapsed: {{end - start}}")
         "L1-dcache-load-misses": 0,
         "LLC-load-misses": 0,
         "LLC-loads": 0,
-        "UNC_M_CAS_COUNT.RD": 0,
-        "UNC_M_CAS_COUNT.WR": 0
+        "unc_m_cas_count.rd": 0,
+        "unc_m_cas_count.wr": 0
     }
 
     for line in stderr.splitlines():
@@ -143,7 +177,7 @@ def main():
         writer.writerow([
             "N", "Trial", "Latency_ns", "App_Bandwidth_GBps", "Perf_Bandwidth_GBps",
             "Perf_Elapsed", "Cache_Misses", "L1-dcache-load-misses", "LLC-load-misses",
-            "LLC-loads", "UNC_M_CAS_COUNT.RD", "UNC_M_CAS_COUNT.WR"
+            "LLC-loads", "unc_m_cas_count.rd", "unc_m_cas_count.wr"
         ])
 
         for N in sizes:
@@ -163,8 +197,8 @@ def main():
                     events["L1-dcache-load-misses"],
                     events["LLC-load-misses"],
                     events["LLC-loads"],
-                    events["UNC_M_CAS_COUNT.RD"],
-                    events["UNC_M_CAS_COUNT.WR"]
+                    events["unc_m_cas_count.rd"],
+                    events["unc_m_cas_count.wr"]
                 ])
 
     print(f"\nResults written to {output_csv}")
