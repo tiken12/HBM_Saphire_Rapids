@@ -9,7 +9,6 @@ import math
 from pathlib import Path
 
 def get_l3_cache_kb():
-    """Get L3 cache size in KB from lscpu."""
     try:
         result = subprocess.run(["lscpu"], capture_output=True, text=True)
         for line in result.stdout.splitlines():
@@ -24,42 +23,35 @@ def get_l3_cache_kb():
                         return size * 1024
                     elif unit == 'G':
                         return size * 1024 * 1024
-        return 30 * 1024  # fallback default
+        return 30 * 1024
     except Exception:
         return 30 * 1024
 
-
 def generate_test_sizes(l3_kb, max_limit=2**30):
-    """Generate test sizes based on L3 cache size."""
     base_sizes = []
-    for i in range(5, int(math.log2(max_limit)) + 1):
+    for i in range(0, int(math.log2(max_limit)) + 1):
         size = 2 ** i
         base_sizes.append(size)
         base_sizes.append(int(size * 1.5))
     return sorted(set(base_sizes))
-    
+
 def make_single_cycle_permutation(N):
     idx = list(range(N))
-    random.shuffle(idx[1:])  # Fix the first index
+    random.shuffle(idx[1:])
     arr = np.zeros(N, dtype=np.int64)
     for i in range(N - 1):
         arr[idx[i]] = idx[i + 1]
-    arr[idx[-1]] = idx[0]  # Close the cycle
+    arr[idx[-1]] = idx[0]
     return arr
 
 def pointer_chase(N, repeat_factor):
     arr = make_single_cycle_permutation(N)
-    # Warm-up pass to ensure cache is populated
-
-    
-    # Validate pointer chain covers all elements
     visited = set()
     i = 0
     for _ in range(N):
         visited.add(i)
         i = arr[i]
-    assert len(visited) == N, "Pointer chase does not visit all elements"
-
+    assert len(visited) == N, "Pointer chase did not visit all elements"
 
     i = 0
     start = time.perf_counter()
@@ -69,11 +61,9 @@ def pointer_chase(N, repeat_factor):
 
     elapsed = end - start
     latency_ns = (elapsed / (N * repeat_factor)) * 1e9
-    app_bytes = N * repeat_factor * 8  # 8 bytes per int64
-    app_bandwidth = app_bytes / elapsed / 1e9  # in GB/s
-
+    app_bytes = N * repeat_factor * 8
+    app_bandwidth = app_bytes / elapsed / 1e9
     return latency_ns, elapsed, app_bandwidth
-
 
 def run_perf(N, repeat_factor):
     code = f"""
@@ -85,40 +75,26 @@ N = {N}
 repeat_factor = {repeat_factor}
 
 idx = list(range(N))
-random.shuffle(idx)
+random.shuffle(idx[1:])
 arr = np.zeros(N, dtype=np.int64)
-for i in range(N):
-    arr[i] = idx[i]
+for i in range(N - 1):
+    arr[idx[i]] = idx[i + 1]
+arr[idx[-1]] = idx[0]
 
-# Optional full-cycle validation
-visited = set()
-i = 0
-for _ in range(N):
-    visited.add(i)
-    i = arr[i]
-assert len(visited) == N
-
-# Warm-up pass
-i = 0
-for _ in range(N):
-    i = arr[i]
-
-# Timed pointer chase
 i = 0
 start = time.perf_counter()
 for _ in range(N * repeat_factor):
     i = arr[i]
 end = time.perf_counter()
-
 print(f"Elapsed: {{end - start}}")
 """
-
     with open("temp_pointer_chase_perf.py", "w") as temp:
         temp.write(code)
 
     perf_command = [
         "perf", "stat",
-        "-e",
+        "-C", "0",
+        "-e", 
         "cache-misses,L1-dcache-load-misses,LLC-load-misses,LLC-loads,unc_m_cas_count.rd,unc_m_cas_count.wr",
         "python3", "temp_pointer_chase_perf.py"
     ]
@@ -127,7 +103,6 @@ print(f"Elapsed: {{end - start}}")
     stderr = result.stderr
     stdout = result.stdout
 
-    # Extract elapsed time
     elapsed_match = re.search(r"Elapsed:\s*([\d.]+)", stdout)
     elapsed = float(elapsed_match.group(1)) if elapsed_match else 0.0
 
@@ -150,9 +125,20 @@ print(f"Elapsed: {{end - start}}")
                         events[event] = int(num_str)
                 break
 
-    # Compute perf-derived bandwidth
+    # ✅ Correct bandwidth calculation using CAS counts
+   # rd = events.get("unc_m_cas_count.rd", 0)
+   # wr = events.get("unc_m_cas_count.wr", 0)
+   # if elapsed > 0 and (rd + wr) > 0:
+   #     perf_bandwidth = ((rd + wr) * 64) / elapsed / 1e9  # in GB/s
     if events["cache-misses"] > 0 and elapsed > 0:
-        perf_bandwidth = (events["cache-misses"] * 64) / elapsed / 1e9
+        perf_bandwidth = (events["cache-misses"] * 64) / elapsed / 1e9  # in GB/s
+    elif events["unc_m_cas_count.rd"] > 0 or events["unc_m_cas_count.wr"] > 0:
+        rd = events.get("unc_m_cas_count.rd", 0)
+        wr = events.get("unc_m_cas_count.wr", 0)
+        if elapsed > 0 and (rd + wr) > 0:
+            perf_bandwidth = ((rd + wr) * 64) / elapsed / 1e9  # in GB/s
+        else:
+            perf_bandwidth = 0.0
     else:
         perf_bandwidth = 0.0
 
@@ -160,7 +146,6 @@ print(f"Elapsed: {{end - start}}")
         os.remove("temp_pointer_chase_perf.py")
 
     return perf_bandwidth, elapsed, events
-
 
 def main():
     trials = 10
@@ -180,29 +165,34 @@ def main():
             "LLC-loads", "unc_m_cas_count.rd", "unc_m_cas_count.wr"
         ])
 
-        for N in sizes:
-            repeat_factor = max(1, 10_000 // N)
-            for trial in range(trials):
+    for N in sizes:
+        repeat_factor = max(1, 10_000 // N)
+        for trial in range(trials):
+            try:
                 latency_ns, elapsed, app_bandwidth = pointer_chase(N, repeat_factor)
                 perf_bandwidth, perf_elapsed, events = run_perf(N, repeat_factor)
 
-                writer.writerow([
-                    N,
-                    trial + 1,
-                    latency_ns,
-                    app_bandwidth,
-                    perf_bandwidth,
-                    perf_elapsed,
-                    events["cache-misses"],
-                    events["L1-dcache-load-misses"],
-                    events["LLC-load-misses"],
-                    events["LLC-loads"],
-                    events["unc_m_cas_count.rd"],
-                    events["unc_m_cas_count.wr"]
-                ])
+                with open(output_csv, "a", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        N,
+                        trial + 1,
+                        latency_ns,
+                        app_bandwidth,
+                        perf_bandwidth,
+                        perf_elapsed,
+                        events["cache-misses"],
+                        events["L1-dcache-load-misses"],
+                        events["LLC-load-misses"],
+                        events["LLC-loads"],
+                        events["unc_m_cas_count.rd"],
+                        events["unc_m_cas_count.wr"]
+                    ])
+                    f.flush()
+            except Exception as e:
+                print(f"Trial failed for N={N}, trial={trial+1}: {e}")
 
     print(f"\nResults written to {output_csv}")
-
 
 if __name__ == "__main__":
     main()
